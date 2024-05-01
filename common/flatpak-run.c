@@ -518,10 +518,13 @@ typedef struct
 
 static const ExportData default_exports[] = {
   {"PATH", "/app/bin:/usr/bin"},
-  /* We always want to unset LD_LIBRARY_PATH to avoid inheriting weird
-   * dependencies from the host. But if not using ld.so.cache this is
-   * later set. */
+  /* We always want to unset LD variables to avoid inheriting weird
+   * dependencies from the host. But if not using ld.so.cache LD_LIBRARY_PATH
+   is later set. */
   {"LD_LIBRARY_PATH", NULL},
+  {"LD_PRELOAD", NULL},
+  {"LD_AUDIT", NULL},
+
   {"XDG_CONFIG_DIRS", "/app/etc/xdg:/etc/xdg"},
   {"XDG_DATA_DIRS", "/app/share:/usr/share"},
   {"SHELL", "/bin/sh"},
@@ -561,8 +564,15 @@ static const ExportData default_exports[] = {
   {"XKB_CONFIG_ROOT", NULL},
   {"GIO_EXTRA_MODULES", NULL},
   {"GDK_BACKEND", NULL},
+  {"VK_ADD_DRIVER_FILES", NULL},
+  {"VK_ADD_LAYER_PATH", NULL},
   {"VK_DRIVER_FILES", NULL},
   {"VK_ICD_FILENAMES", NULL},
+  {"VK_LAYER_PATH", NULL},
+  {"__EGL_EXTERNAL_PLATFORM_CONFIG_DIRS", NULL},
+  {"__EGL_EXTERNAL_PLATFORM_CONFIG_FILENAMES", NULL},
+  {"__EGL_VENDOR_LIBRARY_DIRS", NULL},
+  {"__EGL_VENDOR_LIBRARY_FILENAMES", NULL},
 };
 
 static const ExportData no_ld_so_cache_exports[] = {
