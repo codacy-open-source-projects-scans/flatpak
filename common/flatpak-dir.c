@@ -1498,16 +1498,48 @@ flatpak_deploy_get_overrides (FlatpakDeploy *deploy)
   FlatpakContext *overrides = flatpak_context_new ();
 
   if (deploy->system_overrides)
-    flatpak_context_merge (overrides, deploy->system_overrides);
+    {
+      flatpak_context_dump (deploy->system_overrides,
+                            "System-wide overrides for all apps");
+      flatpak_context_merge (overrides, deploy->system_overrides);
+    }
+  else
+    {
+      g_debug ("No system-wide overrides for all apps");
+    }
 
   if (deploy->system_app_overrides)
-    flatpak_context_merge (overrides, deploy->system_app_overrides);
+    {
+      flatpak_context_dump (deploy->system_app_overrides,
+                            "System-wide overrides for specified app");
+      flatpak_context_merge (overrides, deploy->system_app_overrides);
+    }
+  else
+    {
+      g_debug ("No system-wide per-app overrides for specified app");
+    }
 
   if (deploy->user_overrides)
-    flatpak_context_merge (overrides, deploy->user_overrides);
+    {
+      flatpak_context_dump (deploy->user_overrides,
+                            "Per-user overrides for all apps");
+      flatpak_context_merge (overrides, deploy->user_overrides);
+    }
+  else
+    {
+      g_debug ("No per-user overrides for all apps");
+    }
 
   if (deploy->user_app_overrides)
-    flatpak_context_merge (overrides, deploy->user_app_overrides);
+    {
+      flatpak_context_dump (deploy->user_app_overrides,
+                            "Per-user overrides for specified app");
+      flatpak_context_merge (overrides, deploy->user_app_overrides);
+    }
+  else
+    {
+      g_debug ("No per-user overrides for specified app");
+    }
 
   return overrides;
 }
@@ -8925,7 +8957,7 @@ flatpak_dir_deploy (FlatpakDir          *self,
       files_etc = g_file_resolve_relative_path (checkoutdir, "files/etc");
       if (g_file_query_exists (files_etc, cancellable))
         {
-          char *etcfiles[] = {"passwd", "group", "machine-id" };
+          static const char * const etcfiles[] = {"passwd", "group", "machine-id" };
           g_autoptr(GFile) etc_resolve_conf = g_file_get_child (files_etc, "resolv.conf");
           int i;
           for (i = 0; i < G_N_ELEMENTS (etcfiles); i++)

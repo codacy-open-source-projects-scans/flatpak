@@ -153,12 +153,12 @@ flatpak_run_add_extension_args (FlatpakBwrap      *bwrap,
         {
           g_autofree char *parent = g_path_get_dirname (directory);
 
-          if (g_hash_table_lookup (mounted_tmpfs, parent) == NULL)
+          if (!g_hash_table_contains (mounted_tmpfs, parent))
             {
               flatpak_bwrap_add_args (bwrap,
                                       "--tmpfs", parent,
                                       NULL);
-              g_hash_table_insert (mounted_tmpfs, g_steal_pointer (&parent), "mounted");
+              g_hash_table_add (mounted_tmpfs, g_steal_pointer (&parent));
             }
         }
 
@@ -229,13 +229,13 @@ flatpak_run_add_extension_args (FlatpakBwrap      *bwrap,
                 {
                   g_autofree char *symlink_path = g_build_filename (merge_dir, dent->d_name, NULL);
                   /* Only create the first, because extensions are listed in prio order */
-                  if (g_hash_table_lookup (created_symlink, symlink_path) == NULL)
+                  if (!g_hash_table_contains (created_symlink, symlink_path))
                     {
                       g_autofree char *symlink = g_build_filename (directory, ext->merge_dirs[i], dent->d_name, NULL);
                       flatpak_bwrap_add_args (bwrap,
                                               "--symlink", symlink, symlink_path,
                                               NULL);
-                      g_hash_table_insert (created_symlink, g_steal_pointer (&symlink_path), "created");
+                      g_hash_table_add (created_symlink, g_steal_pointer (&symlink_path));
                     }
                 }
             }
@@ -385,7 +385,7 @@ flatpak_run_add_environment_args (FlatpakBwrap    *bwrap,
         {
           g_info ("Allowing dri access");
           int i;
-          char *dri_devices[] = {
+          static const char * const dri_devices[] = {
             "/dev/dri",
             /* mali */
             "/dev/mali",
@@ -1046,12 +1046,15 @@ flatpak_app_compute_permissions (GKeyFile *app_metadata,
 
       /* Don't inherit any permissions from the runtime, only things like env vars. */
       flatpak_context_reset_permissions (app_context);
+
+      flatpak_context_dump (app_context, "Metadata from runtime");
     }
 
   if (app_metadata != NULL &&
       !flatpak_context_load_metadata (app_context, app_metadata, error))
     return NULL;
 
+  flatpak_context_dump (app_context, "Metadata from app manifest");
   return g_steal_pointer (&app_context);
 }
 
@@ -1906,13 +1909,13 @@ setup_seccomp (FlatpakBwrap   *bwrap,
     /* seccomp can't look into clone3()'s struct clone_args to check whether
      * the flags are OK, so we have no choice but to block clone3().
      * Return ENOSYS so user-space will fall back to clone().
-     * (GHSA-67h7-w3jq-vh4q; see also https://github.com/moby/moby/commit/9f6b562d) */
+     * (CVE-2021-41133; see also https://github.com/moby/moby/commit/9f6b562d) */
     {SCMP_SYS (clone3), ENOSYS},
 
     /* New mount manipulation APIs can also change our VFS. There's no
      * legitimate reason to do these in the sandbox, so block all of them
      * rather than thinking about which ones might be dangerous.
-     * (GHSA-67h7-w3jq-vh4q) */
+     * (CVE-2021-41133) */
     {SCMP_SYS (open_tree), ENOSYS},
     {SCMP_SYS (move_mount), ENOSYS},
     {SCMP_SYS (fsopen), ENOSYS},
@@ -3038,11 +3041,18 @@ flatpak_run_app (FlatpakDecomposed   *app_ref,
     }
 
   if (sandboxed)
-    flatpak_context_make_sandboxed (app_context);
+    {
+      flatpak_context_make_sandboxed (app_context);
+      flatpak_context_dump (app_context, "After making sandboxed");
+    }
 
   if (extra_context)
-    flatpak_context_merge (app_context, extra_context);
+    {
+      flatpak_context_dump (extra_context, "Command-line overrides");
+      flatpak_context_merge (app_context, extra_context);
+    }
 
+  flatpak_context_dump (app_context, "Final context");
   original_runtime_files = flatpak_deploy_get_files (runtime_deploy);
 
   if (custom_usr_path != NULL)
