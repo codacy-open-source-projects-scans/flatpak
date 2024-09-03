@@ -1,5 +1,6 @@
 /* vi:set et sw=2 sts=2 cin cino=t0,f0,(0,{s,>2s,n-s,^-s,e-s:
  * Copyright © 2014-2018 Red Hat, Inc
+ * Copyright © 2024 GNOME Foundation, Inc.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,6 +17,7 @@
  *
  * Authors:
  *       Alexander Larsson <alexl@redhat.com>
+ *       Hubert Figuière <hub@figuiere.net>
  */
 
 #include "config.h"
@@ -71,6 +73,7 @@ const char *flatpak_context_devices[] = {
   "kvm",
   "shm",
   "input",
+  "usb",
   NULL
 };
 
@@ -104,6 +107,7 @@ flatpak_context_new (void)
   context->filesystems = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   context->session_bus_policy = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   context->system_bus_policy = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  context->a11y_bus_policy = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   context->generic_policy = g_hash_table_new_full (g_str_hash, g_str_equal,
                                                    g_free, (GDestroyNotify) g_strfreev);
 
@@ -118,6 +122,7 @@ flatpak_context_free (FlatpakContext *context)
   g_hash_table_destroy (context->filesystems);
   g_hash_table_destroy (context->session_bus_policy);
   g_hash_table_destroy (context->system_bus_policy);
+  g_hash_table_destroy (context->a11y_bus_policy);
   g_hash_table_destroy (context->generic_policy);
   g_slice_free (FlatpakContext, context);
 }
@@ -431,6 +436,14 @@ flatpak_context_set_session_bus_policy (FlatpakContext *context,
                                         FlatpakPolicy   policy)
 {
   g_hash_table_insert (context->session_bus_policy, g_strdup (name), GINT_TO_POINTER (policy));
+}
+
+void
+flatpak_context_set_a11y_bus_policy (FlatpakContext *context,
+                                     const char     *name,
+                                     FlatpakPolicy   policy)
+{
+  g_hash_table_insert (context->a11y_bus_policy, g_strdup (name), GINT_TO_POINTER (policy));
 }
 
 GStrv
@@ -1342,6 +1355,21 @@ option_own_name_cb (const gchar *option_name,
 }
 
 static gboolean
+option_a11y_own_name_cb (const gchar  *option_name,
+                         const gchar  *value,
+                         gpointer      data,
+                         GError      **error)
+{
+  FlatpakContext *context = data;
+
+  if (!flatpak_verify_dbus_name (value, error))
+    return FALSE;
+
+  flatpak_context_set_a11y_bus_policy (context, value, FLATPAK_POLICY_OWN);
+  return TRUE;
+}
+
+static gboolean
 option_talk_name_cb (const gchar *option_name,
                      const gchar *value,
                      gpointer     data,
@@ -1530,6 +1558,7 @@ static GOptionEntry context_options[] = {
   { "system-own-name", 0, G_OPTION_FLAG_IN_MAIN, G_OPTION_ARG_CALLBACK, &option_system_own_name_cb, N_("Allow app to own name on the system bus"), N_("DBUS_NAME") },
   { "system-talk-name", 0, G_OPTION_FLAG_IN_MAIN, G_OPTION_ARG_CALLBACK, &option_system_talk_name_cb, N_("Allow app to talk to name on the system bus"), N_("DBUS_NAME") },
   { "system-no-talk-name", 0, G_OPTION_FLAG_IN_MAIN, G_OPTION_ARG_CALLBACK, &option_system_no_talk_name_cb, N_("Don't allow app to talk to name on the system bus"), N_("DBUS_NAME") },
+  { "a11y-own-name", 0, G_OPTION_FLAG_IN_MAIN, G_OPTION_ARG_CALLBACK, &option_a11y_own_name_cb, N_("Allow app to own name on the a11y bus"), N_("DBUS_NAME") },
   { "add-policy", 0, G_OPTION_FLAG_IN_MAIN, G_OPTION_ARG_CALLBACK, &option_add_generic_policy_cb, N_("Add generic policy option"), N_("SUBSYSTEM.KEY=VALUE") },
   { "remove-policy", 0, G_OPTION_FLAG_IN_MAIN, G_OPTION_ARG_CALLBACK, &option_remove_generic_policy_cb, N_("Remove generic policy option"), N_("SUBSYSTEM.KEY=VALUE") },
   { "persist", 0, G_OPTION_FLAG_IN_MAIN, G_OPTION_ARG_CALLBACK, &option_persist_cb, N_("Persist home directory subpath"), N_("FILENAME") },
@@ -2353,7 +2382,7 @@ flatpak_context_to_args (FlatpakContext *context,
 void
 flatpak_context_add_bus_filters (FlatpakContext *context,
                                  const char     *app_id,
-                                 gboolean        session_bus,
+                                 FlatpakBus      bus,
                                  gboolean        sandboxed,
                                  FlatpakBwrap   *bwrap)
 {
@@ -2362,24 +2391,37 @@ flatpak_context_add_bus_filters (FlatpakContext *context,
   gpointer key, value;
 
   flatpak_bwrap_add_arg (bwrap, "--filter");
-  if (app_id && session_bus)
-    {
-      if (!sandboxed)
-        {
-          flatpak_bwrap_add_arg_printf (bwrap, "--own=%s.*", app_id);
-          flatpak_bwrap_add_arg_printf (bwrap, "--own=org.mpris.MediaPlayer2.%s.*", app_id);
-        }
-      else
-        {
-          flatpak_bwrap_add_arg_printf (bwrap, "--own=%s.Sandboxed.*", app_id);
-          flatpak_bwrap_add_arg_printf (bwrap, "--own=org.mpris.MediaPlayer2.%s.Sandboxed.*", app_id);
-        }
-    }
 
-  if (session_bus)
-    ht = context->session_bus_policy;
-  else
-    ht = context->system_bus_policy;
+  switch (bus)
+    {
+    case FLATPAK_SESSION_BUS:
+      if (app_id)
+        {
+          if (!sandboxed)
+            {
+              flatpak_bwrap_add_arg_printf (bwrap, "--own=%s.*", app_id);
+              flatpak_bwrap_add_arg_printf (bwrap, "--own=org.mpris.MediaPlayer2.%s.*", app_id);
+            }
+          else
+            {
+              flatpak_bwrap_add_arg_printf (bwrap, "--own=%s.Sandboxed.*", app_id);
+              flatpak_bwrap_add_arg_printf (bwrap, "--own=org.mpris.MediaPlayer2.%s.Sandboxed.*", app_id);
+            }
+        }
+      ht = context->session_bus_policy;
+      break;
+
+    case FLATPAK_SYSTEM_BUS:
+      ht = context->system_bus_policy;
+      break;
+
+    case FLATPAK_A11Y_BUS:
+      ht = context->a11y_bus_policy;
+      break;
+
+    default:
+      g_assert_not_reached ();
+   }
 
   g_hash_table_iter_init (&iter, ht);
   while (g_hash_table_iter_next (&iter, &key, &value))
