@@ -7551,9 +7551,6 @@ export_desktop_file (const char         *app,
   g_autofree gchar *new_data = NULL;
   gsize new_data_len;
   g_autoptr(GKeyFile) keyfile = NULL;
-  g_autofree gchar *old_exec = NULL;
-  gint old_argc;
-  g_auto(GStrv) old_argv = NULL;
   g_auto(GStrv) groups = NULL;
   g_autofree char *escaped_app = maybe_quote (app);
   g_autofree char *escaped_branch = maybe_quote (branch);
@@ -7603,6 +7600,15 @@ export_desktop_file (const char         *app,
 
       /* Add a marker so consumers can easily find out that this launches a sandbox */
       g_key_file_set_string (keyfile, G_KEY_FILE_DESKTOP_GROUP, "X-Flatpak", app);
+
+      /* Disable krunner dbusplugins by default, so that flatpak applications cannot
+       * unintentionally grab sensitive search data.
+       */
+      if (g_key_file_get_boolean (keyfile, G_KEY_FILE_DESKTOP_GROUP,
+                               "X-KDE-PluginInfo-EnabledByDefault", NULL))
+        {
+          g_key_file_set_boolean (keyfile, G_KEY_FILE_DESKTOP_GROUP, "X-KDE-PluginInfo-EnabledByDefault", FALSE);
+        }
 
       /* If the app has been renamed, add its old .desktop filename to
        * X-Flatpak-RenamedFrom in the new .desktop file, taking care not to
@@ -7669,6 +7675,9 @@ export_desktop_file (const char         *app,
 
   for (i = 0; groups[i] != NULL; i++)
     {
+      gint old_argc;
+      g_auto(GStrv) old_argv = NULL;
+      g_autofree gchar *old_exec = NULL;
       g_autoptr(GString) new_exec = NULL;
       g_auto(GStrv) flatpak_run_opts = g_key_file_get_string_list (keyfile, groups[i], "X-Flatpak-RunOptions", NULL, NULL);
       g_autofree char *flatpak_run_args = format_flatpak_run_args_from_run_opts (flatpak_run_opts);
@@ -8074,6 +8083,7 @@ flatpak_export_dir (GFile        *source,
     "share/icons",                         "../..",
     "share/dbus-1/services",               "../../..",
     "share/gnome-shell/search-providers",  "../../..",
+    "share/krunner/dbusplugins",           "../../..",
     "share/mime/packages",                 "../../..",
     "share/metainfo",                      "../..",
     "bin",                                 "..",
