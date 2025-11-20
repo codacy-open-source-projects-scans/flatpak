@@ -126,7 +126,6 @@ libflatpak_common_deps = [
   libglnx_dep,
   libostree_dep,
   libseccomp_dep,
-  libsoup_dep,
   libsystemd_dep,
   libxml_dep,
   libzstd_dep,
@@ -221,6 +220,7 @@ sources = [
   'flatpak-uri.c',
   'flatpak-usb.c',
   'flatpak-xml-utils.c',
+  'flatpak-zstd-compressor.c',
   'flatpak-zstd-decompressor.c',
 ]
 
